@@ -1,7 +1,7 @@
 import { app } from "../../scripts/app.js";
 
 // =========================================================
-// CSS Styles
+// 1. CSS & STYLING
 // =========================================================
 const REMOTE_CSS = `
 .remote-picker-overlay {
@@ -24,11 +24,6 @@ const REMOTE_CSS = `
     box-sizing: border-box; 
 }
 .remote-picker-search:focus { border-color: #66afef; background: #000; }
-.remote-picker-instruction {
-    background: #111; color: #fff; font-weight: bold; font-size: 11px;
-    padding: 4px 12px; border-radius: 12px; border: 1px solid #444;
-    text-align: center; width: fit-content;
-}
 .remote-picker-list {
     flex: 1; overflow-y: auto; padding: 0; margin: 0; list-style: none;
 }
@@ -37,12 +32,15 @@ const REMOTE_CSS = `
     color: #ddd; font-weight: bold; font-size: 13px; cursor: pointer;
     display: flex; justify-content: space-between; align-items: center;
     transition: background 0.1s;
+    user-select: none;
 }
 .remote-group-header:hover { background: #333; color: #fff; }
 .remote-group-header .arrow { font-size: 10px; color: #777; transition: transform 0.2s; }
 .remote-group-header.active { background: #333; border-left: 3px solid #66afef; }
 .remote-group-header.active .arrow { transform: rotate(90deg); color: #66afef; }
-.remote-group-content { background: #151515; display: none; padding: 5px 0; }
+.remote-group-content { 
+    background: #151515; display: none; padding: 5px 0; 
+}
 .remote-group-content.open { display: block; }
 .remote-picker-item {
     padding: 6px 15px 6px 25px; border-bottom: 1px solid #222; cursor: pointer;
@@ -52,7 +50,6 @@ const REMOTE_CSS = `
 .remote-picker-item.selected { background: #2a4a6a; }
 .remote-item-title { color: #ccc; font-size: 13px; }
 .remote-item-meta { font-size: 11px; color: #555; font-family: monospace; }
-.remote-item-subtext { font-size: 10px; color: #666; display: block; margin-left: 25px; margin-bottom: 4px;}
 .remote-picker-list::-webkit-scrollbar { width: 8px; }
 .remote-picker-list::-webkit-scrollbar-track { background: #111; }
 .remote-picker-list::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
@@ -62,693 +59,588 @@ const styleEl = document.createElement("style");
 styleEl.innerHTML = REMOTE_CSS;
 document.head.appendChild(styleEl);
 
-// Polyfill
 if (CanvasRenderingContext2D.prototype.roundRect === undefined) {
     CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
-        if (w < 2 * r) r = w / 2;
-        if (h < 2 * r) r = h / 2;
-        this.beginPath();
-        this.moveTo(x + r, y);
-        this.arcTo(x + w, y, x + w, y + h, r);
-        this.arcTo(x + w, y + h, x, y + h, r);
-        this.arcTo(x, y + h, x, y, r);
-        this.arcTo(x, y, x + w, y, r);
-        this.closePath();
-        return this;
+        if (w < 2 * r) r = w / 2; if (h < 2 * r) r = h / 2;
+        this.beginPath(); this.moveTo(x + r, y); this.arcTo(x + w, y, x + w, y + h, r);
+        this.arcTo(x + w, y + h, x, y + h, r); this.arcTo(x, y + h, x, y, r); this.arcTo(x, y, x + w, y, r);
+        this.closePath(); return this;
     };
 }
 
+// =========================================================
+// 2. GRAPH DATA HELPERS
+// =========================================================
+
+function _rcGetInnerGraph(n) {
+    if (!n) return null;
+    return n.getInnerGraph ? n.getInnerGraph() : (n.innerGraph || n.subgraph || null);
+}
+
+function _rcGetNode(graph, id) {
+    if (graph && graph.getNodeById) {
+        const n = graph.getNodeById(id);
+        if(n) return n;
+    }
+    const nodes = graph ? (graph._nodes || graph.nodes) : null;
+    if (nodes && Array.isArray(nodes)) {
+        return nodes.find(n => n.id == id);
+    }
+    if (app.graph && app.graph.getNodeById) {
+        return app.graph.getNodeById(id);
+    }
+    return null;
+}
+
+function _rcNormalizeLink(l) {
+    if (!l) return null;
+    if (Array.isArray(l)) {
+        return {
+            id: l[0],
+            origin_id: l[1],
+            origin_slot: l[2],
+            target_id: l[3],
+            target_slot: l[4],
+            type: l[5]
+        };
+    }
+    return l;
+}
+
+function _rcFindLinkInGraph(graph, linkId) {
+    if (!graph) return null;
+    if (graph.links && !Array.isArray(graph.links) && graph.links[linkId]) {
+        return _rcNormalizeLink(graph.links[linkId]);
+    }
+    if (graph.links && Array.isArray(graph.links)) {
+        const l = graph.links.find(x => x[0] == linkId);
+        if(l) return _rcNormalizeLink(l);
+    }
+    if (app.graph && app.graph.links && app.graph.links[linkId]) {
+        return _rcNormalizeLink(app.graph.links[linkId]);
+    }
+    return null;
+}
+
+// HELPER: Fuzzy Name Matcher (Ignores Case, Spaces, Underscores)
+function _rcNamesMatch(nameA, nameB) {
+    if (!nameA || !nameB) return false;
+    const cleanA = String(nameA).toLowerCase().replace(/[\s_]/g, "");
+    const cleanB = String(nameB).toLowerCase().replace(/[\s_]/g, "");
+    return cleanA === cleanB;
+}
+
+// =========================================================
+// 3. RECURSIVE CONNECTION TRACER
+// =========================================================
+
+function _rcLeadsToRemote(graph, node, outputIndex, visited = new Set()) {
+    if (!node || !node.outputs || !node.outputs[outputIndex]) return false;
+    
+    const outSlot = node.outputs[outputIndex];
+    if (!outSlot.links || outSlot.links.length === 0) return false;
+
+    for (const linkId of outSlot.links) {
+        if (visited.has(linkId)) continue;
+        visited.add(linkId);
+
+        const link = _rcFindLinkInGraph(graph, linkId);
+        if (!link) continue;
+
+        const targetNode = _rcGetNode(graph, link.target_id);
+        if (!targetNode) continue;
+
+        // CHECK 1: Is this a Remote Control Node?
+        const cc = (targetNode.comfyClass || "").toLowerCase();
+        const tt = (targetNode.title || "").toLowerCase();
+        if (cc.startsWith("remote") || tt.startsWith("remote")) {
+            if (targetNode.inputs && targetNode.inputs[link.target_slot]) {
+                const inpName = (targetNode.inputs[link.target_slot].name || "").toLowerCase();
+                if (inpName.includes("target")) return true;
+            }
+        }
+
+        // CHECK 2: Reroute Node
+        if (targetNode.type === "Reroute") {
+            if (_rcLeadsToRemote(graph, targetNode, 0, visited)) return true;
+        }
+
+        // CHECK 3: Subgraph / Group
+        const inner = _rcGetInnerGraph(targetNode);
+        if (inner) {
+            const inputIdx = link.target_slot;
+            const innerNodes = inner._nodes || inner.nodes || [];
+            const groupInput = innerNodes.find(n => n.type === "GroupInput" || n.type === "Primitive");
+            
+            if (groupInput) {
+                if (_rcLeadsToRemote(inner, groupInput, inputIdx, new Set())) return true;
+            }
+        }
+    }
+    return false;
+}
+
+// =========================================================
+// 4. UI COMPONENTS
+// =========================================================
+
+function _rcFindNodeGlobal(key) {
+    if (!key) return null;
+    const parts = String(key).split(":");
+    let currentGraph = app.graph;
+    let node = null;
+    for (const pid of parts) {
+        if (!currentGraph) return null;
+        node = _rcGetNode(currentGraph, parseInt(pid));
+        if (!node) return null;
+        currentGraph = _rcGetInnerGraph(node);
+    }
+    return node;
+}
+
+function _rcTraverseGlobal(graph, chain, pathLabel, outList) {
+    if (!graph) return;
+    const nodes = graph._nodes || graph.nodes || [];
+    for (const n of nodes) {
+        if (!n.id) continue;
+        const title = n.title || n.type || ("Node " + n.id);
+        const myChain = [...chain, n.id];
+        const uniqueKey = myChain.join(":");
+        const inner = _rcGetInnerGraph(n);
+        
+        const t = (n.type || "").toLowerCase();
+        const ignore = t === "primitive" || t === "reroute" || t.includes("note") || t.startsWith("set") || t.startsWith("get");
+        
+        if (!inner && !ignore) {
+            outList.push({ node: n, title: title, path: pathLabel, key: uniqueKey });
+        }
+        if (inner) {
+            const nextPath = (pathLabel === "Root") ? title : `${pathLabel} > ${title}`;
+            _rcTraverseGlobal(inner, myChain, nextPath, outList);
+        }
+    }
+}
+
+function _rcShowPickerModal(currentVal, onSelect) {
+    try { if (window._rcPickerClosingUntil && performance.now() < window._rcPickerClosingUntil) return; } catch(e) {}
+
+    const entries = [];
+    _rcTraverseGlobal(app.graph, [], "Root", entries);
+    
+    const groups = {};
+    for (const e of entries) {
+        if (!groups[e.path]) groups[e.path] = [];
+        groups[e.path].push(e);
+    }
+    const paths = Object.keys(groups).sort((a,b) => a==="Root" ? -1 : a.localeCompare(b));
+
+    const overlay = document.createElement("div"); overlay.className = "remote-picker-overlay";
+    const modal = document.createElement("div"); modal.className = "remote-picker-modal";
+    const header = document.createElement("div"); header.className = "remote-picker-header";
+    const search = document.createElement("input"); search.className = "remote-picker-search"; search.placeholder = "Search...";
+    const list = document.createElement("div"); list.className = "remote-picker-list";
+    
+    header.appendChild(search); modal.appendChild(header); modal.appendChild(list); overlay.appendChild(modal);
+    
+    let activeGroup = null;
+    if (currentVal) {
+        const found = entries.find(e => e.key === currentVal);
+        if (found) activeGroup = found.path;
+    }
+
+    const render = () => {
+        list.innerHTML = "";
+        const term = search.value.toLowerCase().trim();
+        if (term) {
+            const hits = entries.filter(e => e.title.toLowerCase().includes(term) || String(e.node.id).includes(term));
+            if (hits.length === 0) list.innerHTML = `<div style="padding:20px;text-align:center;color:#666">No results</div>`;
+            else hits.forEach(e => addItem(e, list));
+            return;
+        }
+        for (const p of paths) {
+            const grp = document.createElement("div"); grp.className = "remote-group-header";
+            if (p === activeGroup) grp.classList.add("active");
+            grp.innerHTML = `<span>${p}</span><span class="arrow">${p===activeGroup?'▼':'▶'}</span>`;
+            grp.onclick = () => { activeGroup = (activeGroup===p ? null : p); render(); };
+            const content = document.createElement("div"); content.className = "remote-group-content";
+            if (p === activeGroup) content.classList.add("open");
+            groups[p].sort((a,b)=>a.title.localeCompare(b.title));
+            groups[p].forEach(e => addItem(e, content));
+            list.appendChild(grp); list.appendChild(content);
+        }
+    };
+
+    const addItem = (entry, parent) => {
+        const item = document.createElement("div"); item.className = "remote-picker-item";
+        if (entry.key === currentVal) item.classList.add("selected");
+        item.innerHTML = `<div class="remote-item-title">${entry.title}</div><div class="remote-item-meta">ID: ${entry.node.id}</div>`;
+        item.onclick = (e) => {
+    e.preventDefault();
+    if(e.stopImmediatePropagation) e.stopImmediatePropagation();
+    e.stopPropagation();
+    try { window._rcPickerClosingUntil = performance.now() + 250; } catch(err) {}
+
+    try {
+        onSelect(entry.key);
+    } catch(err) {
+        console.error("Remote picker onSelect error (ignored so menu can close):", err);
+    } finally {
+        setTimeout(()=>{ try{ document.body.removeChild(overlay);}catch(err2){} }, 0);
+    }
+};
+        parent.appendChild(item);
+    };
+
+    search.oninput = render;
+    overlay.onclick = (e) => { if(e.target===overlay) document.body.removeChild(overlay); };
+    document.body.appendChild(overlay);
+    render();
+    setTimeout(()=>search.focus(), 50);
+}
+
+// =========================================================
+// 5. WIDGET TRANSFORMERS
+// =========================================================
+
+const _rcReplaceWithPicker = (node, widget) => {
+    if (widget.type === "REMOTE_PICKER") return;
+
+    const newW = {
+        name: widget.name,
+        label: (widget.label ?? (widget.options && widget.options.label)),
+        type: "REMOTE_PICKER",
+        value: widget.value,
+        options: widget.options || { serialize: true },
+        y: widget.y,
+        callback: widget.callback,
+        computeSize: () => [0, 26],
+    };
+
+    newW.draw = function(ctx, node, wWidth, y, wHeight) {
+        // Display label should follow user renames (ComfyUI typically stores that in widget.label)
+        // while internal behavior should continue to rely on widget.name.
+        let label = (this.label ?? this.name).split(":").pop().trim();
+        const lLow = label.toLowerCase();
+
+        // Label Mapping (ONLY when user hasn't renamed the label)
+        const map = {
+            "target_node_a": "target_a", "target_node_b": "target_b",
+            "target_node_a1": "target_a1", "target_node_a2": "target_a2",
+            "target_node_b1": "target_b1", "target_node_b2": "target_b2",
+            "target_node": "target",
+            "target_node_1": "target_1", "target_node_2": "target_2", "target_node_3": "target_3"
+        };
+        if (!this.label && map[lLow]) label = map[lLow];
+        if(this.value) label += ` [${this.value}]`;
+
+        const isPrim = (node.type === "Primitive" || node.comfyClass === "PrimitiveNode");
+        const margin = isPrim ? 5 : 14.5;
+        const H = 22;
+        const boxY = y + (wHeight - H)/2;
+        const textY = boxY + H/2 + 1;
+
+        ctx.fillStyle = "#222"; ctx.beginPath();
+        ctx.roundRect(margin, boxY, wWidth - margin*2, H, H/2);
+        ctx.fill(); ctx.strokeStyle = "#666"; ctx.lineWidth = 1; ctx.stroke();
+
+        ctx.fillStyle = "#888"; ctx.font = "12px Arial"; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+        ctx.fillText(label, margin+10, textY);
+
+        let valTxt = "None";
+        ctx.fillStyle = "#555";
+        if(this.value) {
+            const t = _rcFindNodeGlobal(this.value);
+            if(t) {
+                valTxt = t.title || t.type || ("Node "+t.id);
+                ctx.fillStyle = "#DDD";
+            } else {
+                valTxt = "Missing";
+            }
+        }
+        ctx.textAlign = "right";
+        ctx.fillText(valTxt, wWidth - margin - 10, textY);
+        this._hitY = boxY; this._hitH = wHeight;
+    };
+
+    newW.mouse = function(e, pos, n) {
+        try { if (window._rcPickerClosingUntil && performance.now() < window._rcPickerClosingUntil) return true; } catch(e) {}
+
+        const t = e && e.type;
+
+        // Allow right-click to reach widget context menu
+        if (e && e.button === 2) return false;
+
+        // Open picker on pointerdown/mousedown/click (linked LegacyWidgets often dispatch click)
+        if(t === "pointerdown" || t === "mousedown" || t === "click") {
+            _rcShowPickerModal(this.value, (k)=>{
+                this.value = k;
+                if(this.callback) { try { this.callback(k); } catch(err) { console.error('Remote picker callback error:', err); } }
+                n.setDirtyCanvas(true, true);
+            });
+            if(e.stopImmediatePropagation) e.stopImmediatePropagation();
+            if(e.stopPropagation) e.stopPropagation();
+            return true;
+        }
+
+        // Consume mouseup so the default value editor doesn't open
+        if(t === "mouseup") {
+            if(e.stopImmediatePropagation) e.stopImmediatePropagation();
+            if(e.stopPropagation) e.stopPropagation();
+            return true;
+        }
+
+        return false;
+    };
+
+// Some linked/promoted widgets are wrapped as LegacyWidgets and trigger onClick instead of mouse events.
+newW.onClick = function(pos, n) {
+        try { if (window._rcPickerClosingUntil && performance.now() < window._rcPickerClosingUntil) return true; } catch(e) {}
+
+    _rcShowPickerModal(this.value, (k)=>{
+        this.value = k;
+        if(this.callback) { try { this.callback(k); } catch(err) { console.error('Remote picker callback error:', err); } }
+        n.setDirtyCanvas(true, true);
+    });
+    return true;
+};
+
+
+    newW.getOptions = function(n) { return [{content: "Convert to Input", callback: () => { if(n.convertWidgetToInput) n.convertWidgetToInput(newW); }}]; };
+
+    const idx = node.widgets.indexOf(widget);
+    node.widgets[idx] = newW;
+    
+    if(!node._rcClickFixed) {
+        const oldDown = node.onMouseDown;
+        node.onMouseDown = function(e, pos, c) {
+            if(this.widgets) {
+                for(const w of this.widgets) {
+                    if(w.type === "REMOTE_PICKER" && w._hitY !== undefined) {
+                        if(pos[1] >= w._hitY && pos[1] <= w._hitY + w._hitH) {
+                            w.mouse(e, pos, this);
+                            return true;
+                        }
+                    }
+                }
+            }
+            if(oldDown) return oldDown.apply(this, arguments);
+        };
+        node._rcClickFixed = true;
+    }
+};
+
+const _rcFixToggleDraw = (w) => {
+    if(w._rcFixed) return;
+    w.draw = function(ctx, node, wWidth, y, wHeight) {
+        // Display label should follow user renames (widget.label), but logic keys off internal name.
+        let label = (this.label ?? this.name).split(":").pop().trim();
+        const lLow = label.toLowerCase();
+
+        const _internal = (this.name || "").split(":").pop().trim().toLowerCase();
+        const lBase = _internal.replace(/_\d+$/, "");
+        
+        const isPrim = (node.type === "Primitive" || node.comfyClass === "PrimitiveNode");
+        const margin = isPrim ? 5 : 14.5;
+        const H = 22;
+        const boxY = y + (wHeight - H)/2;
+        const textY = boxY + H/2 + 1;
+
+        ctx.fillStyle = "#222"; ctx.beginPath();
+        ctx.roundRect(margin, boxY, wWidth - margin*2, H, H/2);
+        ctx.fill(); ctx.strokeStyle = "#666"; ctx.lineWidth = 1; ctx.stroke();
+
+        ctx.fillStyle = "#888"; ctx.font = "12px Arial"; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+        ctx.fillText(label, margin+10, textY);
+
+        let valStr = String(this.value);
+        let dot = "#777";
+
+        if(lBase === "node_status") {
+            if(String(this.value)==="true" || String(this.value).toLowerCase()==="active") {
+                valStr = "Active"; dot = "#66afef";
+            } else {
+                valStr = "Mute/Bypass"; dot = "#777";
+            }
+        } else if(lBase === "switch_status") {
+            valStr = this.value ? "A Active B Inactive" : "B Active A Inactive";
+            dot = "#66afef";
+        } else if(lBase === "mode_select") {
+            valStr = this.value ? "Mute" : "Bypass";
+            dot = (String(this.value).toLowerCase() === "true") ? "#66afef" : "#777";
+        }
+
+        const dotX = wWidth - margin - 10;
+        ctx.beginPath(); ctx.arc(dotX - 5, textY, 4, 0, Math.PI*2); ctx.fillStyle = dot; ctx.fill();
+        ctx.textAlign = "right"; ctx.fillStyle = "#DDD"; ctx.fillText(valStr, dotX - 15, textY);
+    };
+    w._rcFixed = true;
+};
+
+const _rcEnforceLogic = (node) => {
+    if(!node.widgets) return;
+    const switchW = node.widgets.find(w => w.name === "node_status" || w.name === "switch_status");
+    const modeW = node.widgets.find(w => w.name === "mode_select");
+    if(!switchW || !modeW) return;
+
+    const targets = node.widgets.filter(w => w.type === "REMOTE_PICKER");
+    const isSwitch = node.comfyClass.includes("Switch");
+    let changed = false;
+
+    const getMode = (active) => {
+        if(active) return 0; 
+        const m = typeof modeW.value === "boolean" ? (modeW.value ? "Mute" : "Bypass") : modeW.value;
+        return (m === "Mute") ? 2 : 4; 
+    };
+
+    for(const w of targets) {
+        if(!w.value) continue;
+        const target = _rcFindNodeGlobal(w.value);
+        if(target) {
+            let active = false;
+            if(isSwitch) {
+                if(w.name.includes("_A")) active = switchW.value;
+                else if(w.name.includes("_B")) active = !switchW.value;
+                else active = true;
+            } else {
+                active = switchW.value;
+            }
+            const mode = getMode(active);
+            if(target.mode !== mode) {
+                target.mode = mode;
+                if(target.setDirtyCanvas) target.setDirtyCanvas(true, true);
+                changed = true;
+            }
+        }
+    }
+    if(changed) app.canvas.setDirty(true, true);
+};
+
+// =========================================================
+// 6. MAIN HOOKS
+// =========================================================
+
+const processNode = (node) => {
+    if (!node) return;
+    
+    // 1. Linked Primitive
+    if (node.type === "Primitive" || node.comfyClass === "PrimitiveNode") {
+        if (node.outputs && node.outputs[0].links && node.outputs[0].links.length > 0) {
+            if (_rcLeadsToRemote(app.graph, node, 0, new Set())) {
+                if (node.widgets && node.widgets[0]) _rcReplaceWithPicker(node, node.widgets[0]);
+            }
+        }
+    }
+    // 2. Remote Node
+    const cc = (node.comfyClass || "").toLowerCase();
+    const tt = (node.title || "").toLowerCase();
+    if (cc.startsWith("remote") || tt.startsWith("remote")) {
+        if (node.widgets) {
+            for (const w of node.widgets) {
+                const n = w.name.toLowerCase();
+                if (n.includes("mode") || n.includes("status")) {
+                    _rcFixToggleDraw(w);
+                    if (!w._hooked) {
+                        const cb = w.callback;
+                        w.callback = function(v) { if(cb) cb(v); _rcEnforceLogic(node); };
+                        w._hooked = true;
+                    }
+                }
+                if (n.includes("target")) _rcReplaceWithPicker(node, w);
+            }
+            _rcEnforceLogic(node);
+        }
+    }
+    // 3. Subgraph Outer Node
+    const inner = _rcGetInnerGraph(node);
+    if (inner && node.widgets) {
+        const innerNodes = inner._nodes || inner.nodes || [];
+        
+        node.widgets.forEach((w) => {
+
+// Ensure outer Subgraph node control toggles keep custom labels
+try {
+    const _lname0 = (w && w.name ? w.name.split(":").pop().trim().toLowerCase().replace(/_\d+$/, "") : "");
+    if (_lname0 === "mode_select" || _lname0 === "switch_status" || _lname0 === "node_status") {
+        _rcFixToggleDraw(w);
+    }
+} catch(e) {}
+
+            if (w.type === "REMOTE_PICKER") return;
+
+            let matchFound = false;
+
+            // STRATEGY A: Check for Input Slots (Wires)
+            const inputIdx = node.inputs ? node.inputs.findIndex(inp => inp.name === w.name) : -1;
+            if (inputIdx !== -1) {
+                const gi = innerNodes.find(n => n.type === "GroupInput" || n.type === "Primitive");
+                if (gi) {
+                    if (_rcLeadsToRemote(inner, gi, inputIdx, new Set())) {
+                        matchFound = true;
+                    }
+                }
+            }
+
+            // STRATEGY B: Check for Fuzzy Widget Name Match (FIXED)
+            // Loops through inner nodes and fuzzy matches names to the outer widget
+            if (!matchFound) {
+                for (const inNode of innerNodes) {
+                    const inCC = (inNode.comfyClass || "").toLowerCase();
+                    const inTT = (inNode.title || "").toLowerCase();
+                    const isRemote = (inCC.startsWith("remote") || inTT.startsWith("remote"));
+
+                    if (isRemote && inNode.widgets) {
+                        // FUZZY MATCH CHECK
+                        const hasMatchingWidget = inNode.widgets.some(inW => _rcNamesMatch(inW.name, w.name));
+                        if (hasMatchingWidget) {
+                            matchFound = true;
+                            break;
+                        }
+                    }
+                    
+                    // Also check for Primitives inside that are named similarly to the widget
+                    if (inNode.type === "Primitive" && _rcNamesMatch(inNode.title, w.name)) {
+                        if (_rcLeadsToRemote(inner, inNode, 0, new Set())) {
+                            matchFound = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (matchFound) {
+                // Only target pickers should become REMOTE_PICKER on the outer Subgraph node.
+                // Never convert control toggles (mode_select / switch_status / node_status).
+                const _lname = (w.name || "").split(":").pop().trim().toLowerCase().replace(/_\d+$/, "");
+                if (_lname === "mode_select" || _lname === "switch_status" || _lname === "node_status") {
+                    // Keep toggle visuals consistent (avoid True/False labels when linked)
+                    try { _rcFixToggleDraw(w); } catch(e) {}
+                } else {
+                    _rcReplaceWithPicker(node, w);
+                }
+            }
+        });
+    }
+};
+
 app.registerExtension({
     name: "Comfy.RemoteControl",
+    
+    // Runtime Hook
     async nodeCreated(node) {
-        const allowedClasses = [
-            "RemoteControl", "RemoteControlMulti", "remote mb single", "remote mb triple",
-            "RemoteSwitch", "RemoteSwitchMulti"
-        ];
-        
-        const isRemoteNode = allowedClasses.includes(node.comfyClass) || 
-                             (node.title && node.title.toLowerCase().startsWith("remote mb")) ||
-                             (node.title && node.title.toLowerCase().startsWith("remote switch"));
-
-        if (!isRemoteNode) return;
-
-        const REFRESH_RATE = 2000; 
-        node._nodeMap = new Map(); 
-        node._lastScan = 0;
-
-        // -----------------------------------------------------
-        // 1. FILTER & GRAPH LOGIC (Prevent Recursion Crash)
-        // -----------------------------------------------------
-        function isIgnoredNode(n) {
-            if (!n || !n.type) return true;
-            const t = n.type.toLowerCase();
-            const title = (n.title || "").toLowerCase();
-            if (allowedClasses.includes(n.type)) return true;
-            if (t === "primitive" || t === "reroute" || t === "note") return true;
-            if (t.includes("everywhere")) return true;
-            const uiBlocklist = ["ui note", "ui title", "ui spacer", "ui divider"];
-            if (uiBlocklist.some(x => t.includes(x) || title.includes(x))) return true;
-            if (t.startsWith("set") || t.startsWith("get")) return true;
-            if (title.startsWith("set ") || title.startsWith("get ")) return true;
-            return false;
-        }
-
-        function getSubgraphFromNode(n) {
-            if (n.subgraph) return n.subgraph;
-            if (n.innerGraph) return n.innerGraph;
-            if (n.properties?.graph) return n.properties.graph;
-            try { if (n.getInnerGraph) return n.getInnerGraph(); } catch(e){}
-            try { if (n.getSubgraph) return n.getSubgraph(); } catch(e){}
-            return null;
-        }
-
-        function traverseGraph(graph, pathPrefix = "Root", parentId = null, visited = new Set()) {
-            if (!graph || visited.has(graph)) return;
-            visited.add(graph);
-
-            const nodes = graph._nodes ?? graph.nodes ?? [];
-            for (const n of nodes) {
-                if (!n || n.id === undefined) continue;
-
-                const title = n.title || n.type || ("Node " + n.id);
-                let idSuffix = parentId !== null ? ` [${parentId}:${n.id}]` : ` [${n.id}]`;
-                const displayPath = `${pathPrefix} > ${title}${idSuffix}`;
-                const uniqueKey = `${pathPrefix}::${n.id}`;
-                
-                const entry = { 
-                    node: n, graph: graph, title: title, path: pathPrefix, 
-                    fullPathLabel: displayPath, id: n.id, parentId: parentId, key: uniqueKey
-                };
-
-                if (!isIgnoredNode(n)) {
-                    node._nodeMap.set(uniqueKey, entry);
-                    if (!node._nodeMap.has(String(n.id))) node._nodeMap.set(String(n.id), entry);
-                }
-
-                const inner = getSubgraphFromNode(n);
-                if (inner) traverseGraph(inner, `${pathPrefix} > ${title}`, n.id, visited);
-            }
-        }
-
-        function refreshNodeMap() {
-            try {
-                node._nodeMap.clear();
-                let rootGraph = app.graph;
-                if (app.canvas && app.canvas._graph_stack && app.canvas._graph_stack.length > 0) {
-                    rootGraph = app.canvas._graph_stack[0];
-                }
-                traverseGraph(rootGraph, "Root", null);
-                node._lastScan = Date.now();
-            } catch (e) {
-                // Prevent crash
-            }
-        }
-
-        function parseValue(val) {
-            if (!val) return { title: "None", fullPathLabel: "Select a target...", isError: false };
-            let entry = node._nodeMap.get(val);
-            if (entry) return entry;
-            const parts = val.split("::");
-            if (parts.length > 1) {
-                const rawID = parts.pop();
-                entry = node._nodeMap.get(rawID);
-                if (entry) return entry;
-            }
-            return { title: `Missing Node`, fullPathLabel: `ID/Key: ${val}`, isError: true };
-        }
-
-        function fitText(ctx, text, maxWidth) {
-            if (!text) return "";
-            let width = ctx.measureText(text).width;
-            if (width <= maxWidth) return text;
-            const ellipses = "...";
-            const ellipsesWidth = ctx.measureText(ellipses).width;
-            if (maxWidth <= ellipsesWidth) return ".";
-            let len = text.length;
-            while (width >= maxWidth - ellipsesWidth && len > 0) {
-                len--;
-                text = text.substring(0, len);
-                width = ctx.measureText(text).width;
-            }
-            return text + ellipses;
-        }
-
-        // -----------------------------------------------------
-        // 2. DRAWING HELPERS
-        // -----------------------------------------------------
-        function drawPill(ctx, x, y, width, height, radius) {
-            ctx.beginPath();
-            ctx.moveTo(x + radius, y);
-            ctx.lineTo(x + width - radius, y);
-            ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-            ctx.lineTo(x + width, y + height - radius);
-            ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-            ctx.lineTo(x + radius, y + height);
-            ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-            ctx.lineTo(x, y + radius);
-            ctx.quadraticCurveTo(x, y, x + radius, y);
-            ctx.closePath();
-        }
-
-        function drawToggleStandard(ctx, x, y, width, height, value, labelText, labelColor) {
-            // Label
-            ctx.fillStyle = labelColor || "#FFFFFF"; 
-            ctx.textAlign = "left";
-            ctx.font = "12px Arial";
-            ctx.textBaseline = "middle";
-            ctx.fillText(labelText, x + 15, y + height / 2);
-
-            // Toggle
-            const toggleR = 8;
-            const toggleW = 30;
-            const toggleX = x + width - toggleW - 15;
-            const toggleY = y + (height / 2);
-
-            // Track
-            ctx.fillStyle = "#111";
-            ctx.beginPath();
-            ctx.roundRect(toggleX, toggleY - toggleR, toggleW, toggleR * 2, toggleR);
-            ctx.fill();
-            ctx.strokeStyle = "#555";
-            ctx.stroke();
-
-            // Dot
-            const dotX = value ? (toggleX + toggleW - toggleR) : (toggleX + toggleR);
-            ctx.fillStyle = value ? "#6688AA" : "#333";
-            ctx.beginPath();
-            ctx.arc(dotX, toggleY, toggleR - 2, 0, Math.PI * 2);
-            ctx.fill();
-        }
-
-        // -----------------------------------------------------
-        // 3. WIDGET OVERRIDES
-        // -----------------------------------------------------
-
-        // --- A. MODE SELECT (UNIFIED TOGGLE) ---
-        function overrideModeSelect(node) {
-            const modeW = node.widgets.find(w => w.name === "mode_select");
-            if (!modeW) return;
-
-            // Enforce custom toggle type for ALL nodes
-            modeW.type = "custom_toggle"; 
-            if (modeW.options) modeW.options.values = []; // Clear options to prevent dropdown
-
-            modeW.draw = function(ctx, node, widget_width, y, widget_height) {
-                // UNIFIED STATE LOGIC
-                // We map both Boolean (Single/Triple) and String (Switch) to a simple Boolean concept
-                // Is "Bypass" active?
-                let isBypass = false;
-                let textVal = "Bypass";
-
-                if (typeof this.value === "boolean") {
-                    // Boolean type: False=Bypass, True=Mute
-                    isBypass = (this.value === false); 
-                    textVal = isBypass ? "Bypass" : "Mute";
-                } else {
-                    // String type: "Bypass" / "Mute"
-                    // Default to Bypass if undefined
-                    if (!this.value || this.value === "undefined") isBypass = true;
-                    else isBypass = (this.value === "Bypass");
-                    textVal = isBypass ? "Bypass" : "Mute";
-                }
-
-                // Draw Text
-                ctx.fillStyle = "#FFFFFF"; 
-                ctx.textAlign = "left";
-                ctx.font = "12px Arial";
-                ctx.textBaseline = "middle";
-                ctx.fillText("Mode Select", 15, y + widget_height / 2);
-
-                ctx.textAlign = "right";
-                const switchW = 30;
-                const textX = widget_width - switchW - 20;
-                ctx.fillText(textVal, textX, y + widget_height / 2);
-
-                // Draw Toggle Switch (Same visual for all)
-                const toggleR = 8;
-                const toggleX = widget_width - switchW - 15;
-                const toggleY = y + (widget_height / 2);
-
-                ctx.fillStyle = "#111";
-                ctx.beginPath();
-                ctx.roundRect(toggleX, toggleY - toggleR, switchW, toggleR * 2, toggleR);
-                ctx.fill();
-                ctx.strokeStyle = "#555";
-                ctx.stroke();
-
-                // Logic: Bypass (Active/Right), Mute (Inactive/Left)
-                // This matches the visual of "Active" switches
-                const dotX = isBypass ? (toggleX + switchW - toggleR) : (toggleX + toggleR);
-                ctx.fillStyle = isBypass ? "#6688AA" : "#333";
-                ctx.beginPath();
-                ctx.arc(dotX, toggleY, toggleR - 2, 0, Math.PI * 2);
-                ctx.fill();
-            };
-
-            modeW.mouse = function(event, pos, node) {
-                if (event.type === "pointerdown") {
-                    if (typeof this.value === "boolean") {
-                        this.value = !this.value;
-                    } else {
-                        // Handle String Toggle
-                        const current = this.value || "Bypass";
-                        this.value = (current === "Bypass") ? "Mute" : "Bypass";
-                    }
-                    
-                    if (this.callback) this.callback(this.value);
-                    node.setDirtyCanvas(true);
-                    
-                    // STOP PROPAGATION -> Kills dropdown menu for Switch nodes
-                    if (event.stopImmediatePropagation) event.stopImmediatePropagation();
-                    return true; 
-                }
-            };
-        }
-
-        // --- B. STATUS SWITCH ---
-        function overrideStatusSwitch(node) {
-            const switchW = node.widgets.find(w => w.name === "switch_status" || w.name === "node_status");
-            const modeW = node.widgets.find(w => w.name === "mode_select");
-            
-            if (!switchW) return;
-
-            switchW.draw = function(ctx, node, widget_width, y, widget_height) {
-                let label = "Active";
-                let color = "#FFFFFF"; 
-
-                if (this.name === "switch_status") {
-                    label = this.value ? "Switch A Active" : "Switch B Active";
-                } else {
-                    if (this.value) {
-                        label = "Active";
-                    } else {
-                        // Check Mode Select for label
-                        let isBypass = false;
-                        if (modeW) {
-                            if (typeof modeW.value === "boolean") isBypass = !modeW.value;
-                            else isBypass = (modeW.value === "Bypass");
-                        }
-                        label = isBypass ? "Bypass" : "Mute";
-                        color = "#777777"; 
-                    }
-                }
-                drawToggleStandard(ctx, 0, y, widget_width, widget_height, this.value, label, color);
-            };
-        }
-
-        // --- C. TARGET PILL WIDGET ---
-        function addRemoteWidget(node, name, headerLabel) {
-            const w = {
-                name: name,
-                type: "REMOTE_TARGET",
-                value: "",
-                y: 0,
-                options: { serialize: true },
-                _headerLabel: headerLabel || null,
-                
-                draw: function (ctx, node, widget_width, y, widget_height) {
-                    try {
-                        const now = Date.now();
-                        if (now - node._lastScan > REFRESH_RATE) refreshNodeMap();
-
-                        // --- LAYOUT ---
-                        const margin = 15;
-                        const textPadding = 10;
-                        const pillHeight = 22;
-                        
-                        let yOffset = 0;
-                        if (this._headerLabel) {
-                            ctx.save();
-                            ctx.fillStyle = "#AAAAAA"; 
-                            ctx.font = "10px Arial";
-                            ctx.textAlign = "left";
-                            
-                            // Draw Label: Just 3 pixels above where the pill starts
-                            // Pill starts at y+15 (if header exists). 
-                            // So draw text at y+12 (bottom baseline) or y+10 (middle).
-                            // Let's use standard fillText.
-                            ctx.fillText(this._headerLabel, margin, y + 6);
-                            
-                            ctx.restore();
-                            yOffset = 15; // Push pill down
-                        }
-
-                        const pillY = y + yOffset;
-                        const entry = parseValue(this.value);
-                        const isError = entry.isError;
-                        
-                        const wWidth = widget_width - (margin * 2);
-                        const pillRadius = pillHeight / 2;
-
-                        drawPill(ctx, margin, pillY, wWidth, pillHeight, pillRadius);
-                        ctx.fillStyle = "#222"; 
-                        ctx.fill();
-                        ctx.lineWidth = 1;
-                        ctx.strokeStyle = isError ? "#aa4444" : "#444";
-                        ctx.stroke();
-
-                        const sharedTextX = margin + textPadding; 
-                        const arrowSpace = 20;
-                        const maxPillTextWidth = wWidth - textPadding - arrowSpace;
-                        
-                        ctx.textAlign = "left";
-                        ctx.textBaseline = "middle"; 
-                        const pillCenterY = pillY + (pillHeight / 2);
-
-                        ctx.fillStyle = isError ? "#ff6666" : "#FFFFFF";
-                        ctx.font = "12px Arial";
-                        
-                        let displayTitle = entry.title;
-                        if (displayTitle === "None") displayTitle = "None";
-                        ctx.fillText(fitText(ctx, displayTitle, maxPillTextWidth), sharedTextX, pillCenterY); 
-
-                        ctx.fillStyle = "#777";
-                        const arrowX = margin + wWidth - 12;
-                        ctx.beginPath();
-                        ctx.moveTo(arrowX - 4, pillCenterY - 3);
-                        ctx.lineTo(arrowX + 4, pillCenterY - 3);
-                        ctx.lineTo(arrowX, pillCenterY + 3);
-                        ctx.fill();
-
-                        ctx.font = "10px Arial";
-                        ctx.fillStyle = "#E6E6E6";
-                        ctx.textAlign = "left";
-                        ctx.textBaseline = "top";
-                        
-                        let subText = "Select a target...";
-                        if (entry.title !== "None" && !entry.isError) {
-                            subText = entry.fullPathLabel || "Unknown path";
-                        }
-                        ctx.fillText(fitText(ctx, subText, wWidth), margin, pillY + pillHeight + 3);
-                    } catch (e) {
-                        // Safety
-                    }
-                },
-                mouse: function (event, pos, node) {
-                    if (event.type === "pointerdown") showPickerModal(name, this.value);
-                    return true;
-                },
-                computeSize: function(width) {
-                    // Height Calculation
-                    // If Header: 15px (header) + 22px (pill) + 14px (path) + gap
-                    const labelH = this._headerLabel ? 15 : 0; 
-                    const pillH = 22;
-                    const pathH = 14; 
-                    const gap = 4;
-                    return [width, labelH + pillH + pathH + gap]; 
-                }
-            };
-            node.addCustomWidget(w);
-            return w;
-        }
-
-        // -----------------------------------------------------
-        // 4. LOGIC & STATE
-        // -----------------------------------------------------
-        function getTargetMode(modeSelect, isActive) {
-            if (isActive) return 0; // Active
-            
-            let modeVal = "Bypass";
-            if (typeof modeSelect.value === "boolean") {
-                modeVal = modeSelect.value ? "Mute" : "Bypass"; // True=Mute, False=Bypass
-            } else {
-                modeVal = modeSelect.value || "Bypass";
-            }
-            return modeVal === "Mute" ? 2 : 4; 
-        }
-
-        function enforceState() {
-            try {
-                if (!node.widgets) return;
-                const switchW = node.widgets.find(w => w.name === "node_status" || w.name === "switch_status");
-                const modeW = node.widgets.find(w => w.name === "mode_select");
-                if (!switchW || !modeW) return;
-                
-                const customWidgets = node.widgets.filter(w => w.type === "REMOTE_TARGET");
-                let graphChanged = false;
-                const isSwitchNode = node.comfyClass.includes("Switch");
-
-                for (const w of customWidgets) {
-                    const targetKey = w.value;
-                    if (!targetKey) continue;
-                    let entry = node._nodeMap.get(targetKey);
-                    if (!entry && targetKey.includes("::")) {
-                        refreshNodeMap(); entry = node._nodeMap.get(targetKey);
-                    }
-                    if (!entry) entry = node._nodeMap.get(targetKey);
-
-                    if (entry && entry.node) {
-                        let shouldBeActive = false;
-                        if (isSwitchNode) {
-                            const switchState = switchW.value; 
-                            if (w.name.includes("_A")) shouldBeActive = switchState;
-                            else if (w.name.includes("_B")) shouldBeActive = !switchState;
-                            else shouldBeActive = true; 
-                        } else {
-                            shouldBeActive = switchW.value;
-                        }
-
-                        const targetMode = getTargetMode(modeW, shouldBeActive);
-                        if (entry.node.mode !== targetMode) {
-                            entry.node.mode = targetMode;
-                            if (entry.node.setDirtyCanvas) entry.node.setDirtyCanvas(true, true);
-                            graphChanged = true;
-                        }
-                    }
-                }
-                if (graphChanged && app.canvas) app.canvas.setDirty(true, true);
-            } catch (e) { }
-        }
-
-        // -----------------------------------------------------
-        // Option A: Event-driven enforcement for promoted/linked widgets
-        // Promoted widgets can change inner widget values without triggering mouse handlers.
-        // We watch value changes on the *inner* widgets and run enforceState immediately.
-        // -----------------------------------------------------
-        function _rcWatchWidgetValue(w) {
-            if (!w || w._rcWatchedValue) return;
-
-            const desc = Object.getOwnPropertyDescriptor(w, "value");
-            if (desc && desc.configurable === false) return;
-
-            let _v = (desc && desc.get) ? desc.get.call(w) : w.value;
-            const origGet = (desc && desc.get) ? desc.get : null;
-            const origSet = (desc && desc.set) ? desc.set : null;
-
-            Object.defineProperty(w, "value", {
-                configurable: true,
-                enumerable: true,
-                get() {
-                    return origGet ? origGet.call(this) : _v;
-                },
-                set(v) {
-                    const prev = origGet ? origGet.call(this) : _v;
-
-                    if (origSet) {
-                        origSet.call(this, v);
-                        _v = origGet ? origGet.call(this) : v;
-                    } else {
-                        _v = v;
-                    }
-
-                    const next = origGet ? origGet.call(this) : _v;
-                    if (next !== prev) {
-                        try { enforceState(); } catch (e) {}
-                        try { node.setDirtyCanvas(true, true); } catch (e) {}
-                    }
-                }
-            });
-
-            w._rcWatchedValue = true;
-        }
-
-        function _rcEnableEventDrivenEnforcement() {
-            if (!node.widgets) return;
-
-            const watchNames = new Set(["mode_select", "node_status", "switch_status"]);
-            for (const w of node.widgets) {
-                if (!w || !w.name) continue;
-                if (watchNames.has(w.name)) _rcWatchWidgetValue(w);
-            }
-        }
-
-
-        // -----------------------------------------------------
-        // 5. INITIALIZATION
-        // -----------------------------------------------------
-        const processWidgets = () => {
-            if (!node.widgets) return;
-            const widgets = [...node.widgets]; 
-            const isSwitch = node.comfyClass.includes("Switch");
-
-            let labeledA = false;
-            let labeledB = false;
-
-            for (const w of widgets) {
-                const name = w.name.toLowerCase();
-                const isTarget = w.name.startsWith("target_node") || name.startsWith("target");
-
-                if (w.type !== "converted-widget" && w.type !== "REMOTE_TARGET" && isTarget) {
-                    
-                    let headerLabel = null;
-                    if (isSwitch) {
-                        if (w.name.includes("_A") && !labeledA) {
-                            headerLabel = "Switch A";
-                            labeledA = true; 
-                        }
-                        if (w.name.includes("_B") && !labeledB) {
-                            headerLabel = "Switch B";
-                            labeledB = true; 
-                        }
-                    }
-
-                    const visual = addRemoteWidget(node, w.name, headerLabel);
-                    visual.value = w.value;
-                    visual.callback = (v) => { w.value = v; enforceState(); };
-
-                    w.type = "converted-widget";
-                    w.computeSize = () => [0, 0]; 
-                    w.draw = () => {}; 
-                    w.linkedWidgets = [visual];
-                }
-            }
-        };
-
-        function showPickerModal(targetWidgetName, currentValue) {
-            const overlay = document.createElement("div");
-            overlay.className = "remote-picker-overlay";
-            const modal = document.createElement("div");
-            modal.className = "remote-picker-modal";
-            
-            const header = document.createElement("div");
-            header.className = "remote-picker-header";
-            const searchInput = document.createElement("input");
-            searchInput.className = "remote-picker-search";
-            searchInput.placeholder = "Search...";
-            const instructionDiv = document.createElement("div");
-            instructionDiv.className = "remote-picker-instruction";
-            instructionDiv.innerText = "Search by node ID or name, or select a subgraph and node to mute in the menu below";
-            header.appendChild(searchInput);
-            header.appendChild(instructionDiv);
-            
-            const listContainer = document.createElement("div");
-            listContainer.className = "remote-picker-list";
-            let openGroup = null; 
-
-            const render = () => {
-                listContainer.innerHTML = "";
-                const filter = searchInput.value.toLowerCase().trim();
-                const allEntries = [];
-                for (const [key, entry] of node._nodeMap.entries()) {
-                    if (key.includes("::")) allEntries.push(entry);
-                }
-
-                if (filter.length > 0) {
-                    const matches = allEntries.filter(e => 
-                        e.title.toLowerCase().includes(filter) || 
-                        e.path.toLowerCase().includes(filter) ||
-                        String(e.id).includes(filter)
-                    );
-                    matches.sort((a,b) => a.path.localeCompare(b.path));
-                    if (matches.length === 0) {
-                        const empty = document.createElement("div");
-                        empty.style.padding = "20px"; empty.style.color = "#777"; empty.style.textAlign = "center";
-                        empty.innerText = "No matching nodes found.";
-                        listContainer.appendChild(empty);
-                    }
-                    matches.forEach(entry => createNodeItem(entry, listContainer, true));
-                    return;
-                }
-
-                const groups = {};
-                allEntries.forEach(e => {
-                    if (!groups[e.path]) groups[e.path] = [];
-                    groups[e.path].push(e);
-                });
-
-                const sortedPaths = Object.keys(groups).sort((a,b) => {
-                    if (a === "Root") return -1;
-                    if (b === "Root") return 1;
-                    return a.localeCompare(b);
-                });
-
-                sortedPaths.forEach(path => {
-                    const groupDiv = document.createElement("div");
-                    groupDiv.className = "remote-group-header";
-                    if (path === openGroup) groupDiv.classList.add("active");
-                    const titleSpan = document.createElement("span");
-                    titleSpan.innerText = path;
-                    const countSpan = document.createElement("span");
-                    countSpan.className = "arrow";
-                    countSpan.innerText = "▶"; 
-                    groupDiv.appendChild(titleSpan);
-                    groupDiv.appendChild(countSpan);
-                    const contentDiv = document.createElement("div");
-                    contentDiv.className = "remote-group-content";
-                    if (path === openGroup) contentDiv.classList.add("open");
-                    groups[path].sort((a,b) => a.title.localeCompare(b.title));
-                    groups[path].forEach(entry => createNodeItem(entry, contentDiv, false));
-                    groupDiv.onclick = () => { openGroup = (openGroup === path) ? null : path; render(); };
-                    listContainer.appendChild(groupDiv);
-                    listContainer.appendChild(contentDiv);
-                });
-            };
-
-            function createNodeItem(entry, parent, showPathSubtext) {
-                const el = document.createElement("div");
-                el.className = "remote-picker-item";
-                if (entry.key === currentValue) el.classList.add("selected");
-                const left = document.createElement("div");
-                left.innerHTML = `<div class="remote-item-title">${entry.title}</div>`;
-                if (showPathSubtext) left.innerHTML += `<div class="remote-item-subtext">${entry.path}</div>`;
-                const right = document.createElement("div");
-                right.className = "remote-item-meta";
-                right.innerText = `ID: ${entry.id}`;
-                el.appendChild(left);
-                el.appendChild(right);
-                el.onclick = (e) => {
-                    e.stopPropagation();
-                    const w = node.widgets.find(x => x.name === targetWidgetName && x.type === "REMOTE_TARGET");
-                    if (w) { w.value = entry.key; if (w.callback) w.callback(entry.key); }
-                    document.body.removeChild(overlay);
-                    node.setDirtyCanvas(true);
-                };
-                parent.appendChild(el);
-            }
-            render();
-            searchInput.oninput = () => render();
-            overlay.onclick = (e) => { if (e.target === overlay) document.body.removeChild(overlay); };
-            modal.appendChild(header);
-            modal.appendChild(listContainer);
-            overlay.appendChild(modal);
-            document.body.appendChild(overlay);
-            setTimeout(() => searchInput.focus(), 50);
-        }
-
-        const origConfigure = node.configure;
-        node.configure = function() {
-            if (origConfigure) origConfigure.apply(this, arguments);
-            processWidgets();
-            overrideModeSelect(node);
-            overrideStatusSwitch(node);
-            _rcEnableEventDrivenEnforcement();
-            node.setSize(node.computeSize()); 
-        };
-        
-        setTimeout(() => {
-            refreshNodeMap();
-            processWidgets(); 
-            overrideModeSelect(node);
-            overrideStatusSwitch(node);
-            _rcEnableEventDrivenEnforcement();
-            enforceState();
-            node.setSize(node.computeSize()); 
-        }, 100);
-
-        const onDrawForeground = node.onDrawForeground;
+        const origDraw = node.onDrawForeground;
         node.onDrawForeground = function(ctx) {
-            if (onDrawForeground) onDrawForeground.apply(this, arguments);
-            enforceState();
+            try { processNode(node); } catch(e) {}
+            if (origDraw) origDraw.apply(this, arguments);
         };
+        setTimeout(() => { try { processNode(node); } catch(e) {} }, 100);
+    },
+
+    // Global Load Hook
+    async afterConfigureGraph(missingNodeTypes) {
+        if(app.graph && app.graph._nodes) {
+            for(const node of app.graph._nodes) {
+                try { processNode(node); } catch(e) {}
+            }
+        }
     }
 });

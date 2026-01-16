@@ -20,7 +20,7 @@ class RemoteControl:
 
     RETURN_TYPES = ()
     FUNCTION = "do_nothing"
-    CATEGORY = "Custom/Remote Mute Bypass"
+    CATEGORY = "mute bypass by ID"
 
     def do_nothing(self, mode_select, node_status, target_node, unique_id=None):
         return ()
@@ -48,9 +48,9 @@ class RemoteControlMulti:
 
     RETURN_TYPES = ()
     FUNCTION = "do_nothing"
-    CATEGORY = "Custom/Remote Mute Bypass"
+    CATEGORY = "mute bypass by ID"
 
-    def do_nothing(self, mode_select, node_status, target_node_1, target_node_2, target_node_3, unique_id=None):
+    def do_nothing(self, **kwargs):
         return ()
 
 
@@ -63,7 +63,6 @@ class RemoteSwitch:
     def INPUT_TYPES(s):
         return {
             "required": {
-                # CHANGED: Now a real BOOLEAN to match other nodes
                 "mode_select": ("BOOLEAN", {"default": False, "label_on": "mute", "label_off": "bypass"}),
                 "switch_status": ("BOOLEAN", {"default": True, "label_on": "Side A Active", "label_off": "Side B Active"}),
                 "target_node_A": ("STRING", {"multiline": False, "default": ""}),
@@ -76,7 +75,7 @@ class RemoteSwitch:
 
     RETURN_TYPES = ()
     FUNCTION = "do_nothing"
-    CATEGORY = "Custom/Remote Mute Bypass"
+    CATEGORY = "mute bypass by ID"
 
     def do_nothing(self, **kwargs):
         return ()
@@ -91,7 +90,6 @@ class RemoteSwitchMulti:
     def INPUT_TYPES(s):
         return {
             "required": {
-                # CHANGED: Now a real BOOLEAN to match other nodes
                 "mode_select": ("BOOLEAN", {"default": False, "label_on": "mute", "label_off": "bypass"}),
                 "switch_status": ("BOOLEAN", {"default": True, "label_on": "Side A Active", "label_off": "Side B Active"}),
                 "target_node_A1": ("STRING", {"multiline": False, "default": ""}),
@@ -106,7 +104,7 @@ class RemoteSwitchMulti:
 
     RETURN_TYPES = ()
     FUNCTION = "do_nothing"
-    CATEGORY = "Custom/Remote Mute Bypass"
+    CATEGORY = "mute bypass by ID"
 
     def do_nothing(self, **kwargs):
         return ()

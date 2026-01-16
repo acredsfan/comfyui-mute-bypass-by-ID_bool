@@ -8,10 +8,10 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "RemoteControl": "remote mb single",
-    "RemoteControlMulti": "remote mb triple",
-    "RemoteSwitch": "remote switch",
-    "RemoteSwitchMulti": "remote switch double"
+    "RemoteControl": "Mute Bypass by ID — Single",
+    "RemoteControlMulti": "Mute Bypass by ID — Triple",
+    "RemoteSwitch": "Mute Bypass by ID — A/B",
+    "RemoteSwitchMulti": "Mute Bypass by ID — AA/BB"
 }
 
 WEB_DIRECTORY = "./js"

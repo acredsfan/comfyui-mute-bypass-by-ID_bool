@@ -4,15 +4,22 @@ If you like and use these nodes, please give me a star!
 
 Mute/Bypass (2 nodes): Can be used standalone or promoted/linked to subgraph widgets. They support targeting nested nodes by ID, even handling duplicate IDs in different Subgraphs correctly.
 
-A/B Switch (2 nodes): Toggles between two target IDs (activating A mutes/bypasses B, and activating B mutes/bypasses A). Includes a standard and a multi-switch variant.
+A/B Switch (2 nodes): Toggles between two target IDs (activating A mutes/bypasses B, and activating B mutes/bypasses A). Includes a standard and a multi-switch variant.<br/>
 
-<p align="left">$${\color{Orangered}12/29/2025}$$</p><br/>
-Major Version Update V2.0.0<br/>
+<table role="presentation">
+  <tr>
+    <td>$${\color{Orangered}12/29/2025}$$</td>
+  </tr>
+  <tr>
+    <td>$${\color{Orangered}Major \space Version \space Update \space V2.0.0}$$</td>
+  </tr>
+</table>
+
 * This will now reliably mute or bypass any node in any Subgraph using the Subgraph ID and Node ID together.<br/>
-* Comfyui can sometimes assign a duplicate ID for nodes in different subgraphs, this latest update fixes this issue.<br/>
+* Comfyui can sometimes assign a duplicate ID for nodes in different subgraphs, this latest update fixes this issue.<br/><br/>
 
-<samp>$${\color{LightSkyBlue}01/16/2026}$$</samp><br/>
-Minor Version Update V2.1.0
+#### $${\color{LightSkyBlue}01/16/2026}$$
+Minor Version Update V2.1.0<br/>
 * Custom UI was causing instability, reverted to standard comfyui widgets.
 * After a widget has been slected, re-clicking the picker retains the path of the target.<br/>
 * Since the node target path is retained in the picker, I removed the path underneath the widget to save space, and remove clutter.<br/>

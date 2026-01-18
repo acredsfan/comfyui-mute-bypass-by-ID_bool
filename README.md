@@ -6,33 +6,25 @@ Mute/Bypass (2 nodes): Can be used standalone or promoted/linked to subgraph wid
 
 A/B Switch (2 nodes): Toggles between two target IDs (activating A mutes/bypasses B, and activating B mutes/bypasses A). Includes a standard and a multi-switch variant.<br/>
 
-<table role="presentation">
-  <tr>
-    <td>$${\color{Orangered}12/29/2025}$$</td>
-  </tr>
-  <tr>
-    <td>$${\color{Orangered}Major \space Version \space Update \space V2.0.0}$$</td>
-  </tr>
-</table>
-
+**12/29/2025**<br/>
+**Major Version Update V2.0.0**
 * This will now reliably mute or bypass any node in any Subgraph using the Subgraph ID and Node ID together.<br/>
-* Comfyui can sometimes assign a duplicate ID for nodes in different subgraphs, this latest update fixes this issue.<br/><br/>
+* Comfyui can sometimes assign a duplicate ID for nodes in different subgraphs, this latest update fixes this issue.<br/>
 
-#### $${\color{LightSkyBlue}01/16/2026}$$
-Minor Version Update V2.1.0<br/>
+**01/16/2026**<br/>
+**Minor Version Update V2.1.0**<br/>
 * Custom UI was causing instability, reverted to standard comfyui widgets.
 * After a widget has been slected, re-clicking the picker retains the path of the target.<br/>
 * Since the node target path is retained in the picker, I removed the path underneath the widget to save space, and remove clutter.<br/>
 * Added target node ID path inside the picker ie [209:25:103] > [subgraph:subgraph:node target]<br/>
 * The picker is now linkable and promotable.<br/>
 * The A/B switch does not visually turn off and on, but remains the same color to indicate that the node is still active.<br/>
-* Multiple nodes with the same widget name no longer cause a conflict error when promoting or linking.<br/>
+* Multiple nodes with the same widget name no longer cause a conflict error when promoting or linking.<br/><br/>
 
+**4 Nodes**<br/>
 
-## **$${\color{Gold}4 \space Nodes}$$**
 **Node 1: Remote Mute Bypass Single**<br/>
-
-Use the Mode Select Button to change from Mute to Bypass\
+Use the Mode Select Button to change from Mute to Bypass<br/>
 Use the Active to Mute/Bypass switch to turn mute/bypass on and off
 
 <img width="315" height="226" alt="image" src="https://github.com/user-attachments/assets/98360aee-2595-445b-90b2-63d696bda232" />

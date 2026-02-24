@@ -1,10 +1,16 @@
 # comfyui-mute-bypass-by-ID
-This pack includes 4 custom nodes:
-If you like these nodes, please think about giving me a star!
+This pack includes 5 custom nodes:
+These nodes were made with love and passion for Comfyui. If you like these nodes, please think about giving me a star, or if inclined, feel free to buy me a coffee :) <a href="https://buymeacoffee.com/pixelpainter">buymeacoffee/pixelpainter</a>
+
 
 Mute/Bypass (2 nodes): Can be used standalone or promoted/linked to subgraph widgets. They support targeting nested nodes by ID, even handling duplicate IDs in different Subgraphs correctly.
 
 A/B Switch (2 nodes): Toggles between two target IDs (activating A mutes/bypasses B, and activating B mutes/bypasses A). Includes a standard and a multi-switch variant.<br/>
+
+**02/23/2026**<br/>
+**Added new Stacker node**<br/>
+**Updated Readme.md**</br>
+**Scroll to the end to see updated intrsuctions for the new node.**</br>
 
 **12/29/2025**<br/>
 **Major Version Update V2.0.0**
@@ -21,11 +27,9 @@ A/B Switch (2 nodes): Toggles between two target IDs (activating A mutes/bypasse
 * The A/B switch does not visually turn off and on, but remains the same color to indicate that the node is still active.<br/>
 * Multiple nodes with the same widget name no longer cause a conflict error when promoting or linking.<br/><br/>
 
-**4 Nodes**<br/>
-
-**Node 1: Remote Mute Bypass Single**<br/>
-Use the Mode Select Button to change from Mute to Bypass<br/>
-Use the Active to Mute/Bypass switch to turn mute/bypass on and off
+**5 Nodes**<br/>
+**02/23/2026**<br/>
+Please scroll to the end of the instructions for information on the new Stacker node.</br>
 
 <img width="315" height="226" alt="image" src="https://github.com/user-attachments/assets/98360aee-2595-445b-90b2-63d696bda232" />
 
@@ -52,7 +56,17 @@ This is the same as Node 3, but it will take 2 A/B input ID's and will switch mu
 
 https://github.com/user-attachments/assets/dd206b9d-5a56-4291-beda-97a83b5e031e
 
-These nodes were made with love for personal use, but if you like this node set, feel free to buy me a coffee to help me stay me up late lol 😂 <a href="https://buymeacoffee.com/pixelpainter">buymeacoffee/pixelpainter</a>
+**02/23/2026**<br/>
+**New Stacker Node**</br>
+Centralized control over multiple Mute Bypass and AB nodes from a single panel.</br>
+Drop your first Stacker node onto the canvas — it automatically adds all Mute/Bypass and A/B Mute/Bypass nodes, including those inside subgraphs. Use X to remove them.</br>
+Modes: Use the header buttons to switch between User (individual control), Mute (all muted), or Bypass (all bypassed). Switching back to User restores each node's previous state.</br>
+Row controls: Each row shows [Title] [M/B] [●] [→] [✕] — toggle mute/bypass mode, toggle active state, move to another stacker, or remove.</br>
+Using Multiple stackers: Use X to remove from a Stacker. Use + Add to pick unstacked nodes. Use → to move nodes between stackers. Nodes at any subgraph depth are supported and tracked if relocated.</br>
+
+https://github.com/user-attachments/assets/69ba448f-e785-46ff-b44a-c00512aa4d9b
+
+
 
 
 

@@ -108,3 +108,25 @@ class RemoteSwitchMulti:
 
     def do_nothing(self, **kwargs):
         return ()
+
+class RemoteStacker:
+    """Global mute/bypass stacker - auto-discovers Remote Control nodes and
+    provides one-click User / Mute / Bypass override for all of them."""
+    def __init__(self):
+        pass
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {},
+            "hidden": {
+                "unique_id": "UNIQUE_ID",
+            },
+        }
+
+    RETURN_TYPES = ()
+    FUNCTION = "do_nothing"
+    CATEGORY = "mute bypass by ID"
+
+    def do_nothing(self, unique_id=None):
+        return ()

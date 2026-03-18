@@ -7,6 +7,8 @@ Mute/Bypass (2 nodes): Can be used standalone or promoted/linked to subgraph wid
 
 A/B Switch (2 nodes): Toggles between two target IDs (activating A mutes/bypasses B, and activating B mutes/bypasses A). Includes a standard and a multi-switch variant.<br/>
 
+Stacker node is a centralized control node over multiple Mute Bypass and AB nodes from a single panel.<br/>
+
 **02/23/2026**<br/>
 **Added new Stacker node**<br/>
 **Updated Readme.md**</br>

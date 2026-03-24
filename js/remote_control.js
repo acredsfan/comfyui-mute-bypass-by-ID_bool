@@ -122,6 +122,29 @@ function _rcFindLinkInGraph(graph, linkId) {
     return null;
 }
 
+// HELPER: Read a boolean value from a linked input slot (e.g. node_status connected via wire)
+function _rcReadInputBool(graph, node, inputName) {
+    if (!node || !node.inputs) return null;
+    const inp = node.inputs.find(i => i.name === inputName);
+    if (!inp || inp.link == null) return null;
+
+    const link = _rcFindLinkInGraph(graph, inp.link);
+    if (!link) return null;
+
+    const srcNode = _rcGetNode(graph, link.origin_id);
+    if (!srcNode) return null;
+
+    // For Primitive / simple widget nodes the value lives in a widget.
+    // Prefer the widget that matches the output slot index; fall back to widgets[0].
+    if (srcNode.widgets && srcNode.widgets.length > 0) {
+        const w = (link.origin_slot < srcNode.widgets.length)
+            ? srcNode.widgets[link.origin_slot]
+            : srcNode.widgets[0];
+        if (w && w.value !== undefined) return !!w.value;
+    }
+    return null;
+}
+
 // HELPER: Fuzzy Name Matcher (Ignores Case, Spaces, Underscores)
 function _rcNamesMatch(nameA, nameB) {
     if (!nameA || !nameB) return false;
@@ -480,10 +503,22 @@ const _rcEnforceLogic = (node) => {
     if(!node.widgets) return;
     const switchW = node.widgets.find(w => w.name === "node_status" || w.name === "switch_status");
     const modeW = node.widgets.find(w => w.name === "mode_select");
-    if(!switchW || !modeW) return;
+    if(!modeW) return;
+
+    // Determine active state: from widget value, or from a wired boolean input connection.
+    // A connected True = active; connected False = mute/bypass.
+    let switchActive;
+    if (switchW) {
+        switchActive = switchW.value;
+    } else {
+        const boolFromInput = _rcReadInputBool(app.graph, node, "node_status")
+                           ?? _rcReadInputBool(app.graph, node, "switch_status");
+        if (boolFromInput === null) return;
+        switchActive = boolFromInput;
+    }
 
     const targets = node.widgets.filter(w => w.type === "REMOTE_PICKER");
-    const isSwitch = node.comfyClass.includes("Switch");
+    const isSwitch = (node.comfyClass || "").includes("Switch");
     let changed = false;
 
     const getMode = (active) => {
@@ -498,11 +533,11 @@ const _rcEnforceLogic = (node) => {
         if(target) {
             let active = false;
             if(isSwitch) {
-                if(w.name.includes("_A")) active = switchW.value;
-                else if(w.name.includes("_B")) active = !switchW.value;
+                if(w.name.includes("_A")) active = switchActive;
+                else if(w.name.includes("_B")) active = !switchActive;
                 else active = true;
             } else {
-                active = switchW.value;
+                active = switchActive;
             }
             const mode = getMode(active);
             if(target.mode !== mode) {
@@ -572,10 +607,17 @@ function _rcResolveKey(key) {
 }
 
 function _rcGetRemoteNodeState(remoteNode) {
-    if (!remoteNode || !remoteNode.widgets) return { active: true, mode: "bypass" };
-    const statusW = remoteNode.widgets.find(w => w.name === "node_status" || w.name === "switch_status");
-    const modeW = remoteNode.widgets.find(w => w.name === "mode_select");
-    const active = statusW ? !!statusW.value : true;
+    if (!remoteNode || (!remoteNode.widgets && !remoteNode.inputs)) return { active: true, mode: "bypass" };
+    const statusW = remoteNode.widgets ? remoteNode.widgets.find(w => w.name === "node_status" || w.name === "switch_status") : null;
+    const modeW = remoteNode.widgets ? remoteNode.widgets.find(w => w.name === "mode_select") : null;
+    let active;
+    if (statusW) {
+        active = !!statusW.value;
+    } else {
+        const fromInput = _rcReadInputBool(app.graph, remoteNode, "node_status")
+                       ?? _rcReadInputBool(app.graph, remoteNode, "switch_status");
+        active = fromInput !== null ? fromInput : true;
+    }
     const mode = modeW ? (modeW.value ? "mute" : "bypass") : "bypass";
     return { active, mode };
 }

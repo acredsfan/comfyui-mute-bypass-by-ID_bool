@@ -1,10 +1,11 @@
-from .remote_control import RemoteControl, RemoteControlMulti, RemoteSwitch, RemoteSwitchMulti, RemoteStacker
+from .remote_control import ImagePresenceBool, RemoteControl, RemoteControlMulti, RemoteSwitch, RemoteSwitchMulti, RemoteStacker
 
 NODE_CLASS_MAPPINGS = {
     "RemoteControl": RemoteControl,
     "RemoteControlMulti": RemoteControlMulti,
     "RemoteSwitch": RemoteSwitch,
     "RemoteSwitchMulti": RemoteSwitchMulti,
+    "ImagePresenceBool": ImagePresenceBool,
     "RemoteStacker": RemoteStacker
 }
 
@@ -13,6 +14,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "RemoteControlMulti": "Mute Bypass by ID — Triple",
     "RemoteSwitch": "Mute Bypass by ID — A/B",
     "RemoteSwitchMulti": "Mute Bypass by ID — AA/BB",
+    "ImagePresenceBool": "Image Presence → Boolean",
     "RemoteStacker": "Mute Bypass by ID — Stacker"
 }
 

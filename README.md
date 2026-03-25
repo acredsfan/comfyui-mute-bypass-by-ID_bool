@@ -1,5 +1,5 @@
 # comfyui-mute-bypass-by-ID
-This pack includes 5 custom nodes:
+This pack includes 6 custom nodes:
 These nodes were made with love and passion for Comfyui. If you like these nodes, please think about giving me a star, or if inclined, feel free to buy me a coffee :) <a href="https://buymeacoffee.com/pixelpainter">buymeacoffee/pixelpainter</a>
 
 
@@ -9,10 +9,17 @@ A/B Switch (2 nodes): Toggles between two target IDs (activating A mutes/bypasse
 
 Stacker node is a centralized control node over multiple Mute Bypass and AB nodes from a single panel.<br/>
 
+Image Presence → Boolean returns `false` when no image is connected and `true` when an image input is present, so it can drive `node_status` / `switch_status` without needing the Impact Pack.<br/>
+
 **02/23/2026**<br/>
 **Added new Stacker node**<br/>
 **Updated Readme.md**</br>
 **Scroll to the end to see updated intrsuctions for the new node.**</br>
+
+**03/25/2026**<br/>
+**Boolean input status sync update**<br/>
+* `node_status` / `switch_status` can now follow a connected `BOOLEAN` node output at runtime, so nodes like `ImpactIfNone` can switch Remote nodes between `active` and `mute/bypass` when the workflow runs.<br/>
+* Added `Image Presence → Boolean`, which outputs `false` when its image input is unconnected/empty and `true` when an image is present.<br/>
 
 **12/29/2025**<br/>
 **Major Version Update V2.0.0**

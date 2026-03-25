@@ -1,5 +1,7 @@
 import { app } from "../../scripts/app.js";
 
+const RC_STATUS_SYNC_EVENT = "pixelpainter.remote_control.status";
+
 // =========================================================
 // 1. CSS & STYLING
 // =========================================================
@@ -219,6 +221,55 @@ function _rcFindNodeGlobal(key) {
         currentGraph = _rcGetInnerGraph(node);
     }
     return node;
+}
+
+function _rcFindNodeByExecutionId(uniqueId) {
+    if (uniqueId == null) return null;
+
+    const key = String(uniqueId).trim();
+    if (!key) return null;
+
+    if (key.includes(":")) {
+        const chainNode = _rcFindNodeGlobal(key);
+        if (chainNode) return chainNode;
+    }
+
+    const numericId = Number(key);
+    if (!Number.isNaN(numericId)) {
+        const direct = _rcGetNode(app.graph, numericId);
+        if (direct) return direct;
+    }
+
+    const entries = [];
+    _rcTraverseGlobal(app.graph, [], "Root", entries);
+    return entries.find(entry => String(entry.node?.id) === key)?.node || null;
+}
+
+function _rcApplyRuntimeStatusUpdate(detail) {
+    const node = _rcFindNodeByExecutionId(detail?.node_id);
+    if (!node || !node.widgets) return;
+
+    const statusName = detail?.status_name || "node_status";
+    const statusWidget = node.widgets.find(w => w.name === statusName || w.name?.endsWith(`:${statusName}`));
+    const modeWidget = node.widgets.find(w => w.name === "mode_select" || w.name?.endsWith(":mode_select"));
+
+    if (statusWidget) {
+        statusWidget.value = !!detail.active;
+        if (statusWidget.callback) {
+            try { statusWidget.callback(statusWidget.value); } catch (err) { console.error("Remote status callback error:", err); }
+        }
+    }
+
+    if (modeWidget && typeof detail.mode_select === "boolean") {
+        modeWidget.value = !!detail.mode_select;
+        if (modeWidget.callback) {
+            try { modeWidget.callback(modeWidget.value); } catch (err) { console.error("Remote mode callback error:", err); }
+        }
+    }
+
+    _rcEnforceLogic(node);
+    if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+    if (app.canvas) app.canvas.setDirty(true, true);
 }
 
 function _rcTraverseGlobal(graph, chain, pathLabel, outList) {
@@ -1477,6 +1528,16 @@ try {
 
 app.registerExtension({
     name: "Comfy.RemoteControl",
+
+    async setup() {
+        app.api.addEventListener(RC_STATUS_SYNC_EVENT, (event) => {
+            try {
+                _rcApplyRuntimeStatusUpdate(event.detail);
+            } catch (err) {
+                console.error("Remote runtime status sync error:", err);
+            }
+        });
+    },
     
     // Runtime Hook
     async nodeCreated(node) {
